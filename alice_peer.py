@@ -49,7 +49,6 @@ class ChatServerProtocol(Protocol):
     def registerUser(self, json_data):
         self.state = "CHAT"
         username = json_data['id']
-        # import ipdb; ipdb.set_trace()
         cport = json_data['port']
         global my_client_connected
         if not my_client_connected:
