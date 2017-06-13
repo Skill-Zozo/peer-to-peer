@@ -1,49 +1,24 @@
 from twisted.internet.protocol import Factory, Protocol
 from twisted.internet.endpoints import TCP4ServerEndpoint
 from twisted.internet import reactor
-import json
-
-PRIVATE_KEY = ""
-KDF =
-
-class User():
-    def __init__(self, username, password, private_key):
-        self.password = password
-        self.name = username
-        self.private_key = private_key
-        self.state = "offline"
-        generate_shared_key();
-
-    def retrieve_shared_key(self):
-        return self.shared_key;
-
-    def generate_shared_key(self):
-        self.shared_key = KDF.derive(private_key.encode('utf8'))
-
+from Crypto.Cipher import AES
+from user import User
+import json, os, hashlib, base64
 
 class AS(Protocol):
     def __init__(self, users):
         self.users = users
         self.name = None
         self.state = "GETNAME"
-        self.bob_keys = {
-            "private": "",
-            "shared": ""
-        }
-        self.alice_keys = {
-            "private": "",
-            "shared": ""
-        }
-        self.kdf =
 
     def connectionMade(self):
-        print("connectionMade")
-        self.transport.write("What's your name?")
+        print("\nconnection made to auth")
+        # self.transport.write("What's your name?")
 
     def connectionLost(self, reason):
         # if self.name in self.users:
         #     del self.users[self.name]
-        print("Lost Connection")
+        print("\nLost Connection")
 
     def dataReceived(self, data):
         '''
@@ -52,62 +27,70 @@ class AS(Protocol):
                 username: "usrname"
                 password: "encrypted_password"
                 service: "A"
+                nonce: "f6ds51bgfd5"
             }
             and returns
             {
                 status: "OK"
                 server_auth: "encrypted_password",
-                shared_key: "shared_key",
-                service_shared_key: "service_shared_key"
+                user_shared_key: "shared_key",
+                peer_shared_key: "service_shared_key"
             }
         '''
-        print "recieved message"
+
         json_data = json.loads(data)
-        username = json_data['username']
+        print "\nrecieved message: %s" % json_data
+        username = json_data['username'].strip()
         requested_username = json_data['service']
-        if users[username]:
-            user = users[username]
-            requested_user = users[requested_username]
-            if verify(user, json_data['password']):
-                status, server_auth, shared_key, service_shared_key = generate_success(username, requested_user)
+        if self.users[username]:
+            # import ipdb; ipdb.set_trace()
+            user = self.users[username]
+            requested_user = self.users[requested_username]
+            if self.verify(user, json_data['password']):
+                nonce = json_data['nonce']
+                status, server_auth, shared_key, service_shared_key = self.generate_success(user, nonce, requested_user)
             else:
-                status, server_auth, shared_key, service_shared_key = generate_error("Service not found")    # return random strings, confuse the enemy
+                status, server_auth, shared_key, service_shared_key = self.generate_error("Service not found")    # return random strings, confuse the enemy
         else:
-             status, server_auth, shared_key, service_shared_key = generate_error("Service not found")# confuse the enemy
+            print("\nwe in NOT")
+            status, server_auth, shared_key, service_shared_key = self.generate_error("Service not found")# confuse the enemy
         response = json.dumps({
             "status": status,
             "server_auth": server_auth,
-            "shared_key": shared_key,
-            "service_shared_key": service_shared_key
-        })
-
-        # if self.state == "REGISTERUSER":
-        #     self.registerUser(data)
-        # else:
-        #     self.handleChat(data)
-        # for line in data.splitlines():
-        #     line = line.strip()
-        #     if self.state == "GETNAME":
-        #         self.registerUser()
-
-    def registerUser(self, data):
-        json_data = json.loads(data)
-        self.name = json_data["id"]
-        response = json.dumps({
-            'authentication': 'success',
-            'message': 'Welcome %s' % self.name
+            "user_shared_key": shared_key,
+            "peer_shared_key": service_shared_key,
+            "ttl": 600
         })
         self.transport.write(response)
-        self.users[self.name] = self
-        self.state = "CHAT"
 
-    def handleChat(self, data):
-        import ipdb; ipdb.set_trace()
-        msg = json.load(data)
-        message = "<%s> %s" % (self.name, msg["message"])
-        for name, protocol in self.users.iteritems():
-            if protocol != self:
-                protocol.transport.write(message)
+    def verify(self, user, password):
+        plaintext = user.decrypt(password)
+        return plaintext == user.password
+
+    def generate_nonce(self, user, nonce):
+        plain_response = user.decrypt(nonce) + " welcome %s" % user.name
+        print plain_response
+        return user.encrypt(plain_response)
+
+    def generate_success(self, user, nonce, requested_user):
+        shared_key = user.generate_shared_key(requested_user)
+        nonce_response = self.generate_nonce(user, nonce)
+        print("\nthis is the shared key %s" % shared_key)
+        return "OK", nonce_response, user.encrypt(shared_key), requested_user.encrypt(shared_key)
+
+    def generate_error(self, message):
+        return message, message, message, message
+
+    # def registerUser(self, data):
+    #     json_data = json.loads(data)
+    #     self.name = json_data["id"]
+    #     response = json.dumps({
+    #         'authentication': 'success',
+    #         'message': 'Welcome %s' % self.name
+    #     })
+    #     self.transport.write(response)
+    #     self.users[self.name] = self
+    #     self.state = "CHAT"
 
 class ASFactory(Factory):
     def __init__(self, users):
@@ -119,10 +102,16 @@ class ASFactory(Factory):
     def buildProtocol(self, addr):
         return AS(self.users)
 
-# Registering users
-alice = User(username="alice", password="alice_pwd", private_key="")
-bob = User(username="bob", password="bob_pwd", private_key="")
+# Credentials
+ALICE_PRIVATE_KEY = '\xa4Tyf\x82\xd8=@\xce<\xd2\xa3\x88$`\x81\xceM9t\xa3f\x8a3@\xdc\x8c\x9dnj\xe0\xbd'
+BOB_PRIVATE_KEY = '\xb7d\xfe\xf7\xf3\x86\x87e\x87\x10@C?\x82\x1e\x982\xc5\x85\x0c\xe4\x02\xd0\x1d<\xf6\xc1\xe0i\nTe'
 
-endpoint = TCP4ServerEndpoint(reactor, 8123)
+# Initial vector
+IV='\xe7\x97Ao\xeb>-@\\\x89! \xc8\x80\x7f\x83'
+# Registering users
+alice = User(username="alice", password="alice_pwd", private_key=ALICE_PRIVATE_KEY, IV=IV)
+bob = User(username="bob", password="bob_pwd", private_key=BOB_PRIVATE_KEY, IV=IV)
+
+endpoint = TCP4ServerEndpoint(reactor, 3000)
 endpoint.listen(ASFactory([bob, alice]))
 reactor.run()
