@@ -4,7 +4,7 @@ from twisted.internet import reactor, stdio
 from twisted.protocols import basic
 from twisted.logger import Logger
 import json, argparse, base64, os
-from datetime import datetime
+from datetime import datetime, timedelta
 from Crypto.Cipher import AES
 from user import User
 from io import FileIO, BufferedWriter, BufferedReader
@@ -24,6 +24,7 @@ parser.add_argument('--asport',  default='3000', dest='asport',
 
 args = parser.parse_args()
 name = 'Alice'
+other_user = 'bob'
 cmd_connection_made = False
 my_client_connected = False
 expected_server_response = base64.b64encode(os.urandom(15))
@@ -35,20 +36,25 @@ class ChatClientProtocol(Protocol):
         self.user = user
 
     def connectionLost(self,reason):
+        server_protocol.state = "GETNAME"
+        args.ping = False
         commandLineProtocol.transport.write("Connection lost. Press n to reconnect \n>>>")
 
 
     def ping(self, msg):
+        # import ipdb; ipdb.set_trace()
+
         print("\n%s %s pinging with %s" % (gettime(), name, msg))
         self.transport.write(msg)
 
     def dataReceived(self, data):
+        print "received %s" % data
         json_data = json.loads(data)
         username = json_data['id']
         status = json_data['status']
         if status == 'pong':
             reactor.callLater(2, startcmdchat)
-        message = json_data['message']
+        message = self.user.read_message(json_data['message'])
         print("\n<%s> %s" % (username, message))
 
     def send_message_from_cmd(self, line, status, filename=None):
@@ -60,6 +66,8 @@ class ChatClientProtocol(Protocol):
         if filename:
             response.update({ "filename": filename})
         encrypted_response = self.user.sign(json.dumps(response))
+        print " sending: %s" % encrypted_response
+
         self.transport.write(encrypted_response)
 
 def gotChatProtocol(p):
@@ -67,10 +75,13 @@ def gotChatProtocol(p):
         'id': name,
         'status': 'ping',
         'port': user.sign(args.sport),
-        'csip': user.sign(args.csip)
+        'csip': user.sign(p.transport.getHost().host)
     }
     if args.ping:
-        json_ping_msg.update({'message': user.retrieve_foreign_key()})
+        json_ping_msg.update({
+            'message': user.retrieve_foreign_key(),
+            'ttl': auth_protocol.ttl
+        })
         ping = json.dumps(json_ping_msg)
         reactor.callLater(auth_protocol.ttl+1, client_protocol.transport.loseConnection)
     print("\n%s Connected. %s pinging to peer server on: %s" % (gettime(), name, args.cport))
@@ -97,6 +108,7 @@ class ChatServerProtocol(Protocol):
 
     def connectionLost(self, reason):
         self.state = "GETNAME"
+        args.ping = False
         print("\n%s Lost Connection" % gettime())
         # if self.name in self.users:
         #     del self.users[self.name]
@@ -113,7 +125,7 @@ class ChatServerProtocol(Protocol):
         json_data = json.loads(data)
         username = json_data['id']
         if not args.ping:
-            self.retrieve_and_save_key(json_data['message'])
+            self.retrieve_and_save_key(json_data['message'], json_data['ttl'])
         args.cport = user.read_message(json_data['port'])
         args.csip = user.read_message(json_data['csip'])
         global my_client_connected
@@ -122,13 +134,17 @@ class ChatServerProtocol(Protocol):
         response = json.dumps({
             'id': self.name,
             'status': 'pong',
-            'message': 'Welcome %s' % username
+            'message': self.user.sign('Welcome %s' % username)
         })
         self.transport.write(response)
         print("\n%s Sent data %s" % (gettime(), response))
 
     def handleChat(self, data):
         decrypted_data = self.user.read_message(data)
+        if not decrypted_data:
+            print "[ERROR] Session key expired, failed to decrypt"
+            return
+        print "Decrypted_data: %s" % decrypted_data
         json_data = json.loads(decrypted_data)
         username = json_data['id']
         status = json_data['status']
@@ -151,9 +167,9 @@ class ChatServerProtocol(Protocol):
                 destination.write(original_message)
         commandLineProtocol.transport.write(">>> ")
 
-    def retrieve_and_save_key(self, key):
+    def retrieve_and_save_key(self, key, ttl):
         shared_key = self.user.decrypt(key)
-        self.user.save_shared_key(shared_key)
+        self.user.save_shared_key(shared_key, ttl)
 
 class ChatFactory(Factory):
     def __init__(self, server_protocol):
@@ -171,6 +187,7 @@ class CMDProtocol(basic.LineReceiver):
             filename = line.split("<send>")[-1].strip()
             read_and_encrypt(filename)
         elif line.strip()=='n':
+            args.ping = True
             startAuthClient()
         else:
             client_protocol.send_message_from_cmd(line, "reply")
@@ -199,13 +216,14 @@ def startcmdchat():
 
 # authentication
 def gotAuthProtocol(p):
-    print("\nafter connect")
+    print("\n generated nonce: %s" % expected_server_response)
     raw_request = json.dumps({
         "username": user.name,
         "password": user.encrypt(user.password),
-        "service": "bob",
+        "service": other_user,
         "nonce": user.encrypt(expected_server_response)
     })
+    print("\n%s sending auth request: %s" % (gettime(),raw_request))
     p.transport.write(raw_request)
 
 def startAuthClient():
@@ -240,6 +258,7 @@ class AuthClientProtocol(Protocol):
         # authenticate the server on the client
         received_server_response = self.user.decrypt(json_data['server_auth'])
         expected_response = expected_server_response + " welcome %s" % user.name
+        print("%s Decrypted nonce response %s" % (gettime(), received_server_response))
         # import ipdb; ipdb.set_trace()
         if received_server_response != expected_response:
             self.disconnect("Unknown authentication server")
@@ -247,10 +266,10 @@ class AuthClientProtocol(Protocol):
 
         # shared key distribution
         shared_key = user.decrypt(json_data['user_shared_key'])
-        self.user.save_shared_key(shared_key)
-        self.user.save_foreign_key(json_data['peer_shared_key'])
         self.ttl = json_data['ttl']
-        self.disconnect("Shared key received: %s" % shared_key)
+        self.user.save_shared_key(shared_key, self.ttl)
+        self.user.save_foreign_key(json_data['peer_shared_key'])
+        self.disconnect("Decrypted hared key received: %s" % shared_key)
         reactor.callLater(1, startCommClient)
 
 def gettime():
