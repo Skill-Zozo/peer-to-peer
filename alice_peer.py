@@ -4,8 +4,11 @@ from twisted.internet import reactor, stdio
 from twisted.protocols import basic
 from twisted.logger import Logger
 import json, argparse, base64, os
+from Crypto.Hash import SHA
 from datetime import datetime, timedelta
+from Crypto.PublicKey import RSA
 from Crypto.Cipher import AES
+from Crypto.Signature import PKCS1_v1_5
 from user import User
 from io import FileIO, BufferedWriter, BufferedReader
 
@@ -61,7 +64,9 @@ class ChatClientProtocol(Protocol):
         response = {
             'id': name,
             'status': status,
-            'message': line
+            'message': line,
+            'signed': base64.b64encode(signer.sign(SHA.new(line)))
+
         }
         if filename:
             response.update({ "filename": filename})
@@ -149,6 +154,11 @@ class ChatServerProtocol(Protocol):
         username = json_data['id']
         status = json_data['status']
         message = json_data['message']
+        SHAed_message = SHA.new(message)
+        if verifier.verify(SHAed_message, base64.b64decode(json_data['signed'])):
+            print "The signature on message is authentic"
+        else:
+            print "Could not authenticate signature on message"
         if status == 'pong':
             startcmdchat()
         elif status == 'reply':
@@ -276,9 +286,11 @@ def gettime():
     return datetime.now().strftime("[%H:%M:%S]")
 
 # security
-ALICE_PRIVATE_KEY = '\xa4Tyf\x82\xd8=@\xce<\xd2\xa3\x88$`\x81\xceM9t\xa3f\x8a3@\xdc\x8c\x9dnj\xe0\xbd'
+ALICE_MASTER_KEY = '\xa4Tyf\x82\xd8=@\xce<\xd2\xa3\x88$`\x81\xceM9t\xa3f\x8a3@\xdc\x8c\x9dnj\xe0\xbd'
 IV='\xe7\x97Ao\xeb>-@\\\x89! \xc8\x80\x7f\x83'
-user = User(username="alice", password="alice_pwd", private_key=ALICE_PRIVATE_KEY, IV=IV)
+signer = PKCS1_v1_5.new(RSA.importKey(open('alice_private_key.der').read().strip().replace('\\n', '\n')))
+verifier = PKCS1_v1_5.new(RSA.importKey(open('bob_public_key.der').read().strip().replace('\\n', '\n')))
+user = User(username="alice", password="alice_pwd", master_key=ALICE_MASTER_KEY, public_key=RSA.importKey(open('bob_public_key.der').read().strip().replace('\\n', '\n')), IV=IV)
 
 #initialize protocols
 server_protocol = ChatServerProtocol(user)

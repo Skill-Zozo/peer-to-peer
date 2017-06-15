@@ -4,9 +4,12 @@ from twisted.internet import reactor, stdio
 from twisted.protocols import basic
 from twisted.logger import Logger
 import json, argparse, base64, os
+from Crypto.Hash import SHA
 from datetime import datetime, timedelta
+from Crypto.PublicKey import RSA
 from Crypto.Cipher import AES
 from user import User
+from Crypto.Signature import PKCS1_v1_5
 from io import FileIO, BufferedWriter, BufferedReader
 
 parser = argparse.ArgumentParser(description='Should be a p2p service')
@@ -57,7 +60,8 @@ class ChatClientProtocol(Protocol):
         response = {
             'id': name,
             'status': status,
-            'message': line
+            'message': line,
+            'signed': base64.b64encode(signer.sign(SHA.new(line)))
         }
         if filename:
             response.update({ "filename": filename})
@@ -137,10 +141,19 @@ class ChatServerProtocol(Protocol):
 
     def handleChat(self, data):
         decrypted_data = self.user.read_message(data)
+        if not decrypted_data:
+            print "[ERROR] Session key expired, failed to decrypt"
+            return
+        print "Decrypted_data: %s" % decrypted_data
         json_data = json.loads(decrypted_data)
         username = json_data['id']
         status = json_data['status']
         message = json_data['message']
+        SHAed_message = SHA.new(message)
+        if verifier.verify(SHAed_message, base64.b64decode(json_data['signed'])):
+            print "The signature on message is authentic"
+        else:
+            print "Could not authenticate signature on message"
         if status == 'pong':
             startcmdchat()
         elif status == 'reply':
@@ -267,9 +280,11 @@ def gettime():
     return datetime.now().strftime("[%H:%M:%S]")
 
 # security
-BOB_PRIVATE_KEY = '\xb7d\xfe\xf7\xf3\x86\x87e\x87\x10@C?\x82\x1e\x982\xc5\x85\x0c\xe4\x02\xd0\x1d<\xf6\xc1\xe0i\nTe'
+BOB_MASTER_KEY = '\xb7d\xfe\xf7\xf3\x86\x87e\x87\x10@C?\x82\x1e\x982\xc5\x85\x0c\xe4\x02\xd0\x1d<\xf6\xc1\xe0i\nTe'
 IV='\xe7\x97Ao\xeb>-@\\\x89! \xc8\x80\x7f\x83'
-user = User(username="bob", password="bob_pwd", private_key=BOB_PRIVATE_KEY, IV=IV)
+signer = PKCS1_v1_5.new(RSA.importKey(open('bob_private_key.der').read().strip().replace('\\n', '\n')))
+verifier = PKCS1_v1_5.new(RSA.importKey(open('alice_public_key.der').read().strip().replace('\\n', '\n')))
+user = User(username="bob", password="bob_pwd", master_key=BOB_MASTER_KEY, public_key=RSA.importKey(open('bob_public_key.der').read().strip().replace('\\n', '\n')), IV=IV)
 
 #initialize protocols
 server_protocol = ChatServerProtocol(user)

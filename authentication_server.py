@@ -2,6 +2,7 @@ from twisted.internet.protocol import Factory, Protocol
 from twisted.internet.endpoints import TCP4ServerEndpoint
 from twisted.internet import reactor
 from Crypto.Cipher import AES
+from Crypto.PublicKey import RSA
 from user import User
 import json, os, hashlib, base64
 
@@ -69,7 +70,6 @@ class AS(Protocol):
 
     def generate_nonce(self, user, nonce):
         plain_response = user.decrypt(nonce) + " welcome %s" % user.name
-        print plain_response
         return user.encrypt(plain_response)
 
     def generate_success(self, user, nonce, requested_user):
@@ -103,14 +103,15 @@ class ASFactory(Factory):
         return AS(self.users)
 
 # Credentials
-ALICE_PRIVATE_KEY = '\xa4Tyf\x82\xd8=@\xce<\xd2\xa3\x88$`\x81\xceM9t\xa3f\x8a3@\xdc\x8c\x9dnj\xe0\xbd'
-BOB_PRIVATE_KEY = '\xb7d\xfe\xf7\xf3\x86\x87e\x87\x10@C?\x82\x1e\x982\xc5\x85\x0c\xe4\x02\xd0\x1d<\xf6\xc1\xe0i\nTe'
+ALICE_MASTER_KEY = '\xa4Tyf\x82\xd8=@\xce<\xd2\xa3\x88$`\x81\xceM9t\xa3f\x8a3@\xdc\x8c\x9dnj\xe0\xbd'
+BOB_MASTER_KEY = '\xb7d\xfe\xf7\xf3\x86\x87e\x87\x10@C?\x82\x1e\x982\xc5\x85\x0c\xe4\x02\xd0\x1d<\xf6\xc1\xe0i\nTe'
+
 
 # Initial vector
 IV='\xe7\x97Ao\xeb>-@\\\x89! \xc8\x80\x7f\x83'
 # Registering users
-alice = User(username="alice", password="alice_pwd", private_key=ALICE_PRIVATE_KEY, IV=IV)
-bob = User(username="bob", password="bob_pwd", private_key=BOB_PRIVATE_KEY, IV=IV)
+alice = User(username="alice", password="alice_pwd", master_key=ALICE_MASTER_KEY, IV=IV, public_key=RSA.importKey(open('alice_public_key.der').read().strip().replace('\\n', '\n')))
+bob = User(username="bob", password="bob_pwd", master_key=BOB_MASTER_KEY, IV=IV, public_key=RSA.importKey(open('bob_public_key.der').read().strip().replace('\\n', '\n')))
 
 endpoint = TCP4ServerEndpoint(reactor, 3000)
 endpoint.listen(ASFactory([bob, alice]))
