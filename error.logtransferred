@@ -1,0 +1,43 @@
+
+Traceback (most recent call last):
+  File "/home/ngubanele/.local/lib/python2.7/site-packages/pyp2p/sock.py", line 195, in connect
+    self.s.connect((addr, int(port)))
+  File "/usr/lib/python2.7/socket.py", line 228, in meth
+    return getattr(self._sock,name)(*args)
+timeout: timed out
+ <class 'socket.timeout'> sock.py 195 timed out
+Traceback (most recent call last):
+  File "/home/ngubanele/.local/lib/python2.7/site-packages/pyp2p/sock.py", line 195, in connect
+    self.s.connect((addr, int(port)))
+  File "/usr/lib/python2.7/socket.py", line 228, in meth
+    return getattr(self._sock,name)(*args)
+timeout: timed out
+ <class 'socket.timeout'> sock.py 195 timed out
+Traceback (most recent call last):
+  File "/home/ngubanele/.local/lib/python2.7/site-packages/pyp2p/sock.py", line 195, in connect
+    self.s.connect((addr, int(port)))
+  File "/usr/lib/python2.7/socket.py", line 228, in meth
+    return getattr(self._sock,name)(*args)
+timeout: timed out
+ <class 'socket.timeout'> sock.py 195 timed out
+Traceback (most recent call last):
+  File "/home/ngubanele/.local/lib/python2.7/site-packages/pyp2p/sock.py", line 195, in connect
+    self.s.connect((addr, int(port)))
+  File "/usr/lib/python2.7/socket.py", line 228, in meth
+    return getattr(self._sock,name)(*args)
+timeout: timed out
+ <class 'socket.timeout'> sock.py 195 timed out
+Traceback (most recent call last):
+  File "/home/ngubanele/.local/lib/python2.7/site-packages/pyp2p/sock.py", line 195, in connect
+    self.s.connect((addr, int(port)))
+  File "/usr/lib/python2.7/socket.py", line 228, in meth
+    return getattr(self._sock,name)(*args)
+timeout: timed out
+ <class 'socket.timeout'> sock.py 195 timed out
+Traceback (most recent call last):
+  File "/home/ngubanele/.local/lib/python2.7/site-packages/pyp2p/sock.py", line 195, in connect
+    self.s.connect((addr, int(port)))
+  File "/usr/lib/python2.7/socket.py", line 228, in meth
+    return getattr(self._sock,name)(*args)
+timeout: timed out
+ <class 'socket.timeout'> sock.py 195 timed out
